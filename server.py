@@ -1,46 +1,20 @@
 from datetime import datetime
+from math import e
 from os import environ
 
 import requests
+import sqlite3
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 
 # Variables
 load_dotenv()
 GOOGLE_CHAT_WEBHOOK_URL: str = environ.get("GOOGLE_CHAT_WEBHOOK_URL", "")
+PORT: int = int(environ.get("PORT", 0))
 THRESHOLD_TIME_STR = "10:15:00"
 
-employee_list: list[str] = [
-    "Siva Munaga 227243",
-    "sainath Billadar 227242",
-    "Naresh Batta 227241",
-    "Divyang Dheer 227240",
-    "Aswin KS 227239",
-    "Harshit Mehra 227238",
-    "Hrithika Madireddy 227237",
-    "Aditi Padshala 227236",
-    "Shivakumar kummari 227235",
-    "Saikiran Bhushaboina 227229",
-    "Rohit Sai Katikireddy 227228",
-    "Maroju Brahmateja 227225",
-    "Varun Bukka 227224",
-    "Abbas Khan 227149",
-    "Shubham Singh 227175",
-    "Saikiran Bhushaboina 227229",
-    "Rohit Sai Katikireddy 227228",
-    "Maroju Brahmateja 227225",
-    "Varun Bukka 227224",
-    "Abbas Khan 227149",
-    "Shubham Singh 227175",
-]
-admin_list: list[str] = [
-    "Chinmay Sanghi CEO",
-    "CSM CSM Mentor",
-    "Ashish ashishjain MD",
-    "Manideep Singapaka 227234",
-]
-empl_ontime: list[str] = []
-admin_ontime: list[str] = []
+conn = sqlite3.connect("workflow.db", check_same_thread=False)
+cur = conn.cursor()
 
 app = Flask(__name__)
 
@@ -58,43 +32,52 @@ def index():
     return jsonify({"message": "Hello, World!"})
 
 
-@app.route("/workflow", methods=["POST"])
+@app.route("/zoho", methods=["POST"])
 def workflow():
-    form_data = request.form
+    try:
+        form_data = request.form
 
-    emp_id: str = form_data.get("emp_id", "")
-    checkin_from_time: str = form_data.get("checkin_from_time", "")
+        fname: str = form_data.get("emp_id", "").split(" ")[0]
+        lname: str = form_data.get("emp_id", "").split(" ")[1]
+        emp_id: str = form_data.get("emp_id", "").split(" ")[2]
+        checkin_from_time: str = form_data.get("checkin_from_time", "")
+        print(form_data.get("desc", ""))
 
-    threshold_time = datetime.strptime(THRESHOLD_TIME_STR, "%H:%M:%S").time()
-    checkin_time = datetime.strptime(checkin_from_time, "%d-%m-%Y %H:%M:%S").time()
+        threshold_time = datetime.strptime(THRESHOLD_TIME_STR, "%H:%M:%S").time()
+        checkin_time = datetime.strptime(checkin_from_time, "%d-%m-%Y %H:%M:%S").time()
 
-    if checkin_time > threshold_time:
-        pass
+        if checkin_time > threshold_time:
+            print(f"{fname} {lname} is late at {checkin_time}")
 
-    else:
-        if emp_id in employee_list:
-            empl_ontime.append(emp_id)
-            print(f"{emp_id} is on time at {checkin_time}")
-        elif emp_id in admin_list:
-            admin_ontime.append(emp_id)
-            print(f"{emp_id} is on time at {checkin_time}")
+        else:
+            cur.execute("UPDATE employee SET ischeckin = 1 WHERE id = ?", (emp_id))
+            conn.commit()
 
-    return jsonify({"message": "Success"})
+            print(f"{fname} {lname} is on time at {checkin_time}")
+
+        return jsonify({"message": "Success"})
+
+    except Exception as e:
+        print(type(e).__name__, e)
+
+        return jsonify({"message": "Error"}), 500
 
 
 @app.route("/googlechat", methods=["GET"])
 def googlechat():
-    message = f"""Employees who have not yet checkin\n\n{'\n'.join(set(employee_list) - set(empl_ontime))}
-    \nAdmins who have not yet checkin\n\n{'\n'.join(set(admin_list) - set(admin_ontime))}"""
+    cur.execute("SELECT name FROM employee where ischeckin = 0")
+    employee_list = cur.fetchall()
+
+    message = f"Employees who have not yet checkin\n\n{'\n'.join((i[0] for i in employee_list))}"
 
     print(message)
     post_to_google_chat(message)
 
-    empl_ontime.clear()
-    admin_ontime.clear()
+    cur.execute("UPDATE employee SET ischeckin = 0")
+    conn.commit()
 
     return jsonify({"message": "Success"})
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(debug=True, host="0.0.0.0", port=PORT)
