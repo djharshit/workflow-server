@@ -1,9 +1,8 @@
+import sqlite3
 from datetime import datetime
-from math import e
 from os import environ
 
 import requests
-import sqlite3
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 
@@ -11,20 +10,25 @@ from flask import Flask, jsonify, request
 load_dotenv()
 GOOGLE_CHAT_WEBHOOK_URL: str = environ.get("GOOGLE_CHAT_WEBHOOK_URL", "")
 PORT: int = int(environ.get("PORT", 0))
-THRESHOLD_TIME_STR = "10:15:00"
 
 conn = sqlite3.connect("workflow.db", check_same_thread=False)
 cur = conn.cursor()
 
-app = Flask(__name__)
 
-
-def post_to_google_chat(message: str):
+def post_to_google_chat(message: str) -> bool:
     res = requests.post(GOOGLE_CHAT_WEBHOOK_URL, json={"text": message})
     if res.status_code == 200:
+        print(res.text)
         print("Message posted successfully")
+
+        return True
     else:
         print("Failed to post message")
+
+        return False
+
+
+app = Flask(__name__)
 
 
 @app.route("/")
@@ -37,25 +41,27 @@ def workflow():
     try:
         form_data = request.form
 
+        if form_data.get("emp_id", "") == "EmployeeID":
+            return jsonify({"message": "Invalid request"}), 400
+
         fname: str = form_data.get("emp_id", "").split(" ")[0]
         lname: str = form_data.get("emp_id", "").split(" ")[1]
         emp_id: str = form_data.get("emp_id", "").split(" ")[2]
         checkin_from_time: str = form_data.get("checkin_from_time", "")
+
         print(form_data.get("desc", ""))
 
-        threshold_time = datetime.strptime(THRESHOLD_TIME_STR, "%H:%M:%S").time()
-        checkin_time = datetime.strptime(checkin_from_time, "%d-%m-%Y %H:%M:%S").time()
+        checkin_time = datetime.strptime(
+            checkin_from_time, "%d-%m-%Y %H:%M:%S"
+        ).strftime("%H:%M:%S")
+        print(fname, emp_id, checkin_time)
+        cur.execute(
+            "UPDATE employee SET ischeckin = 1, checktime = ? WHERE id = ?",
+            (checkin_time, emp_id),
+        )
+        conn.commit()
 
-        if checkin_time > threshold_time:
-            print(f"{fname} {lname} is late at {checkin_time}")
-
-        else:
-            cur.execute("UPDATE employee SET ischeckin = 1 WHERE id = ?", (emp_id))
-            conn.commit()
-
-            print(f"{fname} {lname} is on time at {checkin_time}")
-
-        return jsonify({"message": "Success"})
+        return jsonify({"message": "Success"}), 200
 
     except Exception as e:
         print(type(e).__name__, e)
@@ -63,18 +69,25 @@ def workflow():
         return jsonify({"message": "Error"}), 500
 
 
-@app.route("/googlechat", methods=["GET"])
-def googlechat():
+@app.route("/<int:t>", methods=["GET"])
+def googlechat(t: int):
+    ttime = ""
+
     cur.execute("SELECT name FROM employee where ischeckin = 0")
     employee_list = cur.fetchall()
+    print(employee_list)
 
-    message = f"Employees who have not yet checkin\n\n{'\n'.join((i[0] for i in employee_list))}"
+    if t == 1:
+        ttime = "10:15 AM"
+    elif t == 2:
+        ttime = "11:00 AM"
+        cur.execute("UPDATE employee SET ischeckin = 0")
+        conn.commit()
 
+    message = f"Team members who have not checked-in till {ttime}\n\n{'\n'.join((i[0] for i in employee_list))}"
     print(message)
-    post_to_google_chat(message)
 
-    cur.execute("UPDATE employee SET ischeckin = 0")
-    conn.commit()
+    # post_to_google_chat(message)
 
     return jsonify({"message": "Success"})
 
