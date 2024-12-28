@@ -11,9 +11,6 @@ load_dotenv()
 GOOGLE_CHAT_WEBHOOK_URL: str = environ.get("GOOGLE_CHAT_WEBHOOK_URL", "")
 PORT: int = int(environ.get("PORT", 0))
 
-conn = sqlite3.connect("workflow.db", check_same_thread=False)
-cur = conn.cursor()
-
 
 def post_to_google_chat(message: str) -> bool:
     res = requests.post(GOOGLE_CHAT_WEBHOOK_URL, json={"text": message})
@@ -31,9 +28,9 @@ def post_to_google_chat(message: str) -> bool:
 app = Flask(__name__)
 
 
-@app.route("/")
-def index():
-    return jsonify({"message": "Hello, World!"})
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"message": "Workflow server is running...", "status": "ok"})
 
 
 @app.route("/zoho", methods=["POST"])
@@ -51,15 +48,17 @@ def workflow():
 
         print(form_data.get("desc", ""))
 
-        checkin_time = datetime.strptime(
-            checkin_from_time, "%d-%m-%Y %H:%M:%S"
-        ).strftime("%H:%M:%S")
+        checkin_time = datetime.strptime(checkin_from_time, "%d-%m-%Y %H:%M:%S").strftime("%H:%M:%S")
         print(fname, emp_id, checkin_time)
+
+        conn = sqlite3.connect("workflow.db")
+        cur = conn.cursor()
         cur.execute(
             "UPDATE employee SET ischeckin = 1, checktime = ? WHERE id = ?",
             (checkin_time, emp_id),
         )
         conn.commit()
+        conn.close()
 
         return jsonify({"message": "Success"}), 200
 
@@ -73,7 +72,11 @@ def workflow():
 def googlechat(t: int):
     ttime = ""
 
+    conn = sqlite3.connect("workflow.db")
+    cur = conn.cursor()
+
     cur.execute("SELECT name FROM employee where ischeckin = 0")
+
     employee_list = cur.fetchall()
     print(employee_list)
 
@@ -83,6 +86,8 @@ def googlechat(t: int):
         ttime = "11:00 AM"
         cur.execute("UPDATE employee SET ischeckin = 0")
         conn.commit()
+
+    conn.close()
 
     message = f"Team members who have not checked-in till {ttime}\n\n{'\n'.join((i[0] for i in employee_list))}"
     print(message)
