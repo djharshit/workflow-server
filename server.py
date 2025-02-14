@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime
+from datetime import datetime, time
 from os import environ
 
 import requests
@@ -35,6 +35,9 @@ def health():
 
 @app.route("/zoho", methods=["POST"])
 def workflow():
+    if datetime.now().time() > time(17, 0):
+        return jsonify({"message": "Skipping"})
+
     try:
         form_data = request.form
 
@@ -43,7 +46,7 @@ def workflow():
 
         fname: str = form_data.get("emp_id", "").split(" ")[0]
         lname: str = form_data.get("emp_id", "").split(" ")[1]
-        emp_id: str = form_data.get("emp_id", "").split(" ")[2]
+        emp_id: str = form_data.get("emp_id", "").split(" ")[-1]
         checkin_from_time: str = form_data.get("checkin_from_time", "")
 
         print(form_data.get("desc", ""))
@@ -84,7 +87,7 @@ def googlechat(t: int):
         ttime = "10:15 AM"
     elif t == 2:
         ttime = "11:00 AM"
-        cur.execute("UPDATE employee SET ischeckin = 0")
+        cur.execute("UPDATE employee SET ischeckin = ?, checktime = ?", (0, "00:00:00"))
         conn.commit()
 
     conn.close()
@@ -92,7 +95,7 @@ def googlechat(t: int):
     message = f"Team members who have not checked-in till {ttime}\n\n{'\n'.join((i[0] for i in employee_list))}"
     print(message)
 
-    # post_to_google_chat(message)
+    post_to_google_chat(message)
 
     return jsonify({"message": "Success"})
 
